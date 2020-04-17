@@ -93,9 +93,9 @@ struct no_leading_dot_policy : boost::spirit::x3::real_policies<T>
     static bool const allow_leading_dot = false;
 };
 
-template <typename T>
+template <typename T, typename T2>
 bool
-compare(T n, double expected)
+compare(T n, T2 expected)
 {
     T const eps = std::pow(10.0, -std::numeric_limits<T>::digits10);
     T delta = n - expected;
@@ -111,8 +111,6 @@ struct custom_real
     custom_real(double n_) : n(n_) {}
     friend bool operator==(custom_real a, custom_real b)
         { return a.n == b.n; }
-    friend bool operator==(custom_real a, double b)
-        { return a.n == b; }
     friend custom_real operator*(custom_real a, custom_real b)
         { return custom_real(a.n * b.n); }
     friend custom_real operator+(custom_real a, custom_real b)
