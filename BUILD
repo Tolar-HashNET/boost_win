@@ -1,4 +1,6 @@
 load(":boost.bzl", "boost_library", "hdr_list", "includes_list")
+load("@bazel_skylib//rules:copy_file.bzl", "copy_file")
+
 
 config_setting(
     name = "linux",
@@ -11,6 +13,13 @@ config_setting(
 _w_no_deprecated = select({
     ":linux": [
         "-Wno-deprecated-declarations",
+    ],
+    "//conditions:default": [],
+})
+
+_w_no_unused_value = select({
+    ":linux": [
+        "-Wno-unused-value",
     ],
     "//conditions:default": [],
 })
@@ -75,6 +84,17 @@ config_setting(
     visibility = ["//visibility:public"],
 )
 
+# Rename .asm to .S so that it will be handled with the C preprocessor.
+[copy_file(
+    name = "rename_%s" % name,
+    src = "src/libs/context/src/asm/%s_x86_64_ms_pe_masm.asm" % name,
+    out = "src/libs/context/src/asm/%s_x86_64_ms_pe_masm.S" % name,
+) for name in [
+    "make",
+    "jump",
+    "ontop",
+]]
+
 BOOST_CTX_ASM_SOURCES = select({
     ":linux_arm": [
         "src/libs/context/src/asm/jump_arm_aapcs_elf_gas.S",
@@ -92,10 +112,11 @@ BOOST_CTX_ASM_SOURCES = select({
         "src/libs/context/src/asm/ontop_x86_64_sysv_macho_gas.S",
     ],
     ":windows_x86_64": [
-        "src/libs/context/src/asm/make_x86_64_ms_pe_masm.asm",
-        "src/libs/context/src/asm/jump_x86_64_ms_pe_masm.asm",
-        "src/libs/context/src/asm/ontop_x86_64_ms_pe_masm.asm",
+        "src/libs/context/src/asm/make_x86_64_ms_pe_masm.S",
+        "src/libs/context/src/asm/jump_x86_64_ms_pe_masm.S",
+        "src/libs/context/src/asm/ontop_x86_64_ms_pe_masm.S",
     ],
+    "//conditions:default": [],
 })
 
 boost_library(
@@ -110,6 +131,11 @@ boost_library(
         ":windows_x86_64": [
             "src/libs/context/src/windows/stack_traits.cpp",
         ],
+        "//conditions:default": [],
+    }),
+    copts = select({
+        ":windows_x86_64": ["/DBOOST_CONTEXT_EXPORT="],
+        "//conditions:default": [],
     }),
     exclude_src = [
         "src/libs/context/src/fiber.cpp",
@@ -117,15 +143,13 @@ boost_library(
         "src/libs/context/src/continuation.cpp",
     ],
     visibility = ["//visibility:public"],
-    defines = [
-        "BOOST_CONTEXT_EXPORT=",
-    ],
     deps = [
         ":assert",
         ":config",
         ":cstdint",
         ":detail",
         ":intrusive_ptr",
+        ":pool",
     ],
 )
 
@@ -199,6 +223,7 @@ boost_library(
         ":fusion",
         ":mpl",
         ":parameter",
+        ":serialization",
         ":type_traits",
         ":utility",
         ":version",
@@ -295,8 +320,8 @@ boost_library(
     }),
     linkopts = select({
         ":linux": ["-lpthread"],
-	":osx_x86_64": ["-lpthread"],
-	":windows_x86_64": [],
+    ":osx_x86_64": ["-lpthread"],
+    ":windows_x86_64": [],
     }),
     deps = [
         ":bind",
@@ -317,10 +342,12 @@ boost_library(
         ":core",
         ":detail",
         ":endian",
+        ":mp11",
         ":smart_ptr",
         ":static_assert",
         ":system",
         ":throw_exception",
+        ":tribool",
         ":utility",
     ],
 )
@@ -396,6 +423,7 @@ boost_library(
     ],
 )
 
+
 boost_library(
     name = "compute",
     linkopts = select({
@@ -450,6 +478,7 @@ boost_library(
     hdrs = [
         "src/libs/container/src/dlmalloc_2_8_6.c",
     ],
+    copts = _w_no_deprecated,
     deps = [
         ":config",
         ":core",
@@ -525,6 +554,20 @@ boost_library(
 )
 
 boost_library(
+    name = "coroutine2",
+    hdrs = glob([
+        "src/libs/coroutine2/include/**/*.hpp",
+        "src/libs/coroutine2/include/**/*.ipp",
+    ]),
+    deps = [
+        ":assert",
+        ":config",
+        ":context",
+        ":detail",
+    ],
+)
+
+boost_library(
     name = "crc",
     deps = [
         ":config",
@@ -535,6 +578,10 @@ boost_library(
 
 boost_library(
     name = "cstdint",
+    deps = [
+        ":config",
+        ":limits",
+    ],
 )
 
 boost_library(
@@ -576,6 +623,7 @@ boost_library(
         ":config",
         ":core",
         ":detail",
+        ":functional",
         ":integer",
         ":move",
         ":throw_exception",
@@ -630,11 +678,6 @@ boost_library(
         ":system",
         ":type_traits",
     ],
-    linkopts = select({
-        ":linux": [],
-	":osx_x86_64": [],
-	":windows_x86_64": ["Shell32.lib"],
-    }),
 )
 
 boost_library(
@@ -653,6 +696,7 @@ boost_library(
 
 boost_library(
     name = "format",
+    copts = _w_no_unused_value,
     deps = [
         ":assert",
         ":config",
@@ -722,12 +766,25 @@ boost_library(
         ":lexical_cast",
         ":math",
         ":mpl",
-        ":numeric",
+        ":numeric_conversion",
         ":qvm",
         ":range",
         ":rational",
         ":tokenizer",
         ":variant",
+    ],
+)
+
+boost_library(
+    name = "gil",
+    deps = [
+        ":concept_check",
+        ":config",
+        ":integer",
+        ":iterator",
+        ":mpl",
+        ":ref",
+        ":type_traits",
     ],
 )
 
@@ -775,17 +832,22 @@ boost_library(
 boost_library(
     name = "integer",
     hdrs = [
-        "src/boost/cstdint.hpp",
         "src/boost/integer_traits.hpp",
-        "src/boost/pending/integer_log2.hpp",
     ],
     deps = [
+        ":cstdint",
         ":static_assert",
     ],
 )
 
 boost_library(
     name = "interprocess",
+    linkopts = select({
+        ":linux": [
+            "-lrt",
+        ],
+        "//conditions:default": [],
+    }),
     deps = [
         ":assert",
         ":checked_delete",
@@ -871,6 +933,7 @@ boost_library(
         ":type",
         ":type_traits",
         ":utility",
+        "@com_github_facebook_zstd//:zstd",
         "@net_zlib_zlib//:zlib",
         "@org_bzip_bzip2//:bz2lib",
         "@org_lzma_lzma//:lzma",
@@ -981,7 +1044,37 @@ boost_library(
 boost_library(
     name = "math",
     hdrs = [
-        "src/boost/cstdint.hpp",
+        "src/boost/cstdfloat.hpp",
+    ],
+    deps = [
+        ":array",
+        ":assert",
+        ":atomic",
+        ":concept_check",
+        ":config",
+        ":core",
+        ":cstdint",
+        ":detail",
+        ":fusion",
+        ":integer",
+        ":lambda",
+        # https://github.com/boostorg/lexical_cast/issues/27
+        #":lexical_cast",
+        ":limits",
+        ":mp11",
+        ":mpl",
+        # https://github.com/boostorg/math/issues/201
+        #":multiprecision",
+        ":predef",
+        ":range",
+        ":scoped_array",
+        ":static_assert",
+        ":throw_exception",
+        ":tuple",
+        ":type",
+        ":type_traits",
+        ":utility",
+        ":version",
     ],
 )
 
@@ -1110,7 +1203,7 @@ boost_library(
         ":iterator",
         ":mpl",
         ":noncopyable",
-        ":numeric",
+        ":numeric_interval",
         ":range",
         ":serialization",
         ":shared_array",
@@ -1126,13 +1219,22 @@ boost_library(
     name = "numeric_odeint",
     hdrs = glob([
         "src/boost/numeric/odeint/**/*.hpp",
-    ]),
+    ]) + [
+        "src/boost/numeric/odeint.hpp",
+    ],
     deps = [
         ":fusion",
         ":lexical_cast",
         ":math",
+        # There is currently a circular dependency between math and
+        # multiprecision. We know that :numeric_odeint triggers it,
+        # despite only depending directly on :math, so we include
+        # :multiprecision here. Some users of :math will need to do
+        # so as well.
+        # See: https://github.com/boostorg/math/issues/201
+        ":multiprecision",
         ":multi_array",
-        ":numeric",
+        ":numeric_ublas",
         ":serialization",
         ":units",
     ],
@@ -1144,6 +1246,23 @@ boost_library(
 
 boost_library(
     name = "units",
+    deps = [
+        ":assert",
+        ":config",
+        ":core",
+        ":integer",
+        ":io",
+        ":lambda",
+        ":math",
+        ":mpl",
+        ":preprocessor",
+        ":serialization",
+        ":static_assert",
+        ":type_traits",
+        ":typeof",
+        ":utility",
+        ":version",
+    ],
 )
 
 boost_library(
@@ -1167,6 +1286,19 @@ boost_library(
 
 boost_library(
     name = "parameter",
+    deps = [
+        ":mp11",
+    ],
+)
+
+boost_library(
+    name = "polygon",
+    deps = [
+        ":config",
+        ":integer",
+        ":mpl",
+        ":utility",
+    ],
 )
 
 boost_library(
@@ -1583,10 +1715,11 @@ boost_library(
         ":osx_x86_64": [],
         ":windows_x86_64": [
             "BOOST_ALL_NO_LIB",
+            "BOOST_THREAD_BUILD_LIB",
             "BOOST_THREAD_USE_LIB",
             "BOOST_WIN32_THREAD",
-            "BOOST_THREAD_BUILD_LIB",
         ],
+        "//conditions:default": [],
     }),
     linkopts = select({
         ":linux": [
@@ -1735,13 +1868,17 @@ boost_library(
     name = "utility",
     hdrs = [
         "src/boost/compressed_pair.hpp",
-        "src/boost/next_prior.hpp",
     ],
     deps = [
         ":config",
+        ":container_hash",
+        ":core",
+        ":cstdint",
         ":detail",
         ":preprocessor",
+        ":static_assert",
         ":swap",
+        ":throw_exception",
         ":type_traits",
     ],
 )
@@ -1779,6 +1916,13 @@ boost_library(
 )
 
 boost_library(
+    name = "variant2",
+    deps = [
+        ":mp11",
+    ],
+)
+
+boost_library(
     name = "version",
 )
 
@@ -1801,39 +1945,42 @@ boost_library(
 )
 
 boost_library(
-    name = "numeric",
-)
-
-boost_library(
-    name = "test",
-    exclude_src = glob(["src/libs/test/src/*.cpp"]),
+    name = "numeric_interval",
+    hdrs = glob([
+        "src/boost/numeric/interval/**/*.hpp",
+    ]) + [
+        "src/boost/numeric/interval.hpp",
+    ],
     deps = [
-        ":algorithm",
-        ":assert",
-        ":bind",
-        ":call_traits",
-        ":config",
-        ":core",
-        ":current_function",
-        ":detail",
-        ":exception",
-        ":function",
-        ":io",
-        ":iterator",
-        ":limits",
-        ":mpl",
-        ":numeric_conversion",
-        ":optional",
-        ":preprocessor",
-        ":smart_ptr",
-        ":static_assert",
-        ":timer",
-        ":type",
-        ":type_traits",
-        ":utility",
-        ":version",
     ],
 )
+
+_BOOST_TEST_DEPS = [
+    ":algorithm",
+    ":assert",
+    ":bind",
+    ":call_traits",
+    ":config",
+    ":core",
+    ":current_function",
+    ":detail",
+    ":exception",
+    ":function",
+    ":io",
+    ":iterator",
+    ":limits",
+    ":mpl",
+    ":numeric_conversion",
+    ":optional",
+    ":preprocessor",
+    ":smart_ptr",
+    ":static_assert",
+    ":timer",
+    ":type",
+    ":type_traits",
+    ":utility",
+    ":version",
+]
 
 boost_library(
     name = "proto",
@@ -1860,8 +2007,6 @@ BOOST_LOG_CFLAGS = select({
 BOOST_LOG_DEFINES = [
     "BOOST_LOG_WITHOUT_WCHAR_T",
     "BOOST_LOG_USE_STD_REGEX",
-    "BOOST_LOG_WITHOUT_DEFAULT_FACTORIES",
-    "BOOST_LOG_WITHOUT_SETTINGS_PARSERS",
     "BOOST_LOG_WITHOUT_DEBUG_OUTPUT",
     "BOOST_LOG_WITHOUT_EVENT_LOG",
     "BOOST_LOG_WITHOUT_SYSLOG",
@@ -1875,6 +2020,7 @@ BOOST_LOG_DEPS = [
     ":locale",
     ":parameter",
     ":phoenix",
+    ":property_tree",
     ":random",
     ":spirit",
     ":system",
@@ -1905,7 +2051,13 @@ cc_library(
 
 boost_library(
     name = "log",
-    copts = BOOST_LOG_CFLAGS,
+    srcs = glob([
+        "src/libs/log/src/setup/*.hpp",
+        "src/libs/log/src/setup/*.cpp",
+    ]),
+    copts = BOOST_LOG_CFLAGS + [
+        "-Iexternal/boost/src/libs/log/src/",
+    ],
     defines = BOOST_LOG_DEFINES,
     exclude_src = [
         "src/libs/log/src/dump_avx2.cpp",
@@ -1947,7 +2099,9 @@ boost_library(
     name = "graph",
     hdrs = [
         "src/boost/pending/container_traits.hpp",
+        "src/boost/pending/detail/disjoint_sets.hpp",
         "src/boost/pending/detail/property.hpp",
+        "src/boost/pending/disjoint_sets.hpp",
         "src/boost/pending/indirect_cmp.hpp",
         "src/boost/pending/property.hpp",
         "src/boost/pending/queue.hpp",
@@ -1972,4 +2126,35 @@ boost_library(
 
 boost_library(
     name = "lambda",
+)
+
+boost_library(
+    name = "sort",
+)
+
+boost_library(
+    name = "contract",
+    hdrs = [
+        "src/boost/contract_macro.hpp",
+    ],
+    deps = [
+        ":any",
+        ":assert",
+        ":config",
+        ":detail",
+        ":exception",
+        ":function",
+        ":function_types",
+        ":mpl",
+        ":noncopyable",
+        ":optional",
+        ":preprocessor",
+        ":shared_ptr",
+        ":smart_ptr",
+        ":static_assert",
+        ":thread",
+        ":type_traits",
+        ":typeof",
+        ":utility",
+    ],
 )
